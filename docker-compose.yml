@@ -19,7 +19,7 @@ services:
       - ./setup/entrypoint.sh:/entrypoint.sh:ro,Z
       - ./setup/helpers.sh:/helpers.sh:ro,Z
       - ./setup/roles:/roles:ro,Z
-      - setup:/state:Z
+      - elk-setup:/state:Z
     environment:
       ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-}
       LOGSTASH_INTERNAL_PASSWORD: ${LOGSTASH_INTERNAL_PASSWORD:-}
@@ -29,8 +29,6 @@ services:
       HEARTBEAT_INTERNAL_PASSWORD: ${HEARTBEAT_INTERNAL_PASSWORD:-}
       MONITORING_INTERNAL_PASSWORD: ${MONITORING_INTERNAL_PASSWORD:-}
       BEATS_SYSTEM_PASSWORD: ${BEATS_SYSTEM_PASSWORD:-}
-    networks:
-      - elk
     depends_on:
       - elasticsearch
 
@@ -41,7 +39,7 @@ services:
         ELASTIC_VERSION: ${ELASTIC_VERSION}
     volumes:
       - ./elasticsearch/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro,Z
-      - elasticsearch:/usr/share/elasticsearch/data:Z
+      - elk-data01:/usr/share/elasticsearch/data:Z
     ports:
       - 9200:9200
       - 9300:9300
@@ -55,8 +53,6 @@ services:
       # Use single node discovery in order to disable production mode and avoid bootstrap checks.
       # see: https://www.elastic.co/guide/en/elasticsearch/reference/current/bootstrap-checks.html
       discovery.type: single-node
-    networks:
-      - elk
 
   logstash:
     build:
@@ -74,8 +70,6 @@ services:
     environment:
       LS_JAVA_OPTS: -Xms256m -Xmx256m
       LOGSTASH_INTERNAL_PASSWORD: ${LOGSTASH_INTERNAL_PASSWORD:-}
-    networks:
-      - elk
     depends_on:
       - elasticsearch
 
@@ -90,15 +84,33 @@ services:
       - 5601:5601
     environment:
       KIBANA_SYSTEM_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:-}
-    networks:
-      - elk
     depends_on:
       - elasticsearch
-
-networks:
-  elk:
-    driver: bridge
+    deploy:
+      replicas: 1
+      labels:
+        - 'traefik.enable=true'
+        - 'traefik.docker.network=swarm-overlay'
+        - 'traefik.http.routers.kibana.rule=Host(`kibana.pi.lan`)'
+        - 'traefik.http.routers.kibana.entrypoints=web-secure'
+        - 'traefik.http.routers.kibana.service=kibana'
+        - 'traefik.http.services.kibana.loadBalancer.server.port=5601'
 
 volumes:
-  setup:
-  elasticsearch:
+  elk-setup:
+    driver: 'local'
+    driver_opts:
+      type: 'nfs'
+      o: 'addr=10.0.0.201'
+      device: ':/export/docker_elk_setup'
+  elk-data01:
+    driver: 'local'
+    driver_opts:
+      type: 'nfs'
+      o: 'addr=10.0.0.201'
+      device: ':/export/docker_elk_data01'
+
+networks:
+  default:
+    external: true
+    name: swarm-overlay
